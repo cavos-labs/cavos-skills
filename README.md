@@ -1,6 +1,6 @@
 # Cavos Skills
 
-AI-optimized knowledge for building on the [Cavos](https://cavos.network) ecosystem. Install these skills to give your AI coding assistant expert-level understanding of the Cavos SDKs.
+AI-optimized knowledge for building on the [Cavos](https://cavos.xyz) ecosystem. Install these skills to give your AI coding assistant expert-level understanding of the Cavos SDKs.
 
 ## Install
 
@@ -35,4 +35,4 @@ Complete knowledge base for `@cavos/react` — Starknet account abstraction via 
 Found a bug pattern your AI keeps hitting? Add it to the relevant reference doc and submit a PR.
 
 ---
-Built with ⚡ by [Cavos Labs](https://cavos.network)
+Built with ⚡ by [Cavos Labs](https://cavos.xyz)
