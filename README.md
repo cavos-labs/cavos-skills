@@ -1,35 +1,38 @@
 # Cavos Skills
 
-This repository contains **Specialized AI Agent Skills** for the Cavos ecosystem. These skills are designed to be consumed by AI coding assistants (like Claude Code, Antigravity, or Cursor) to help them understand and integrate Cavos SDKs flawlessly.
+AI-optimized knowledge for building on the [Cavos](https://cavos.network) ecosystem. Install these skills to give your AI coding assistant expert-level understanding of the Cavos SDKs.
 
-## Available Skills
-
--   **[Cavos React SDK](skills/cavos-react/SKILL.md)**: Expert knowledge on Starknet account abstraction, session management, and gasless transaction flows.
-
-## How to Install
-
-### Using the Skills CLI (Recommended)
-You can add these skills to your local project using the `skills` CLI:
+## Install
 
 ```bash
 npx skills add cavos-labs/cavos-skills
 ```
 
-### Manual Installation
-If you prefer to install it manually:
+## What's Included
 
-1.  Create a `.agent/skills` folder in your project root.
-2.  Clone this repository into it:
-    ```bash
-    git clone https://github.com/cavos-labs/cavos-skills.git .agent/skills/cavos-global
-    ```
+### 🛡️ Cavos React SDK (`skills/cavos-react`)
 
-## Why use this?
+Complete knowledge base for `@cavos/react` — Starknet account abstraction via OAuth and session keys.
 
-Traditional documentation is for humans. **Skills** are for AI. By adding this repository to your project:
-1.  Your AI agent will understand the 3-layer architecture of Cavos.
-2.  It will know the "Synchronization Rule" for session policies (preventing security bugs).
-3.  It will have access to proven implementation patterns in the `scripts/` directory.
+**References:**
+| Document | Coverage |
+|----------|----------|
+| [Session Management](skills/cavos-react/references/session-management.md) | Lifecycle, state machine, storage, renewal |
+| [Policy Synchronization](skills/cavos-react/references/policy-synchronization.md) | Critical sync rule, on-chain enforcement |
+| [Account Deployment](skills/cavos-react/references/account-deployment.md) | Address derivation, gasless deploy, multi-wallet |
+| [Transaction Execution](skills/cavos-react/references/transaction-execution.md) | JWT vs session signatures, SNIP-9, error codes |
+
+**Code Examples:**
+| Script | Pattern |
+|--------|---------|
+| [basic-usage.tsx](skills/cavos-react/scripts/basic-usage.tsx) | Login + Transfer |
+| [session-with-policy.tsx](skills/cavos-react/scripts/session-with-policy.tsx) | Policy sync before activation |
+| [multicall-swap.tsx](skills/cavos-react/scripts/multicall-swap.tsx) | Approve + Swap atomic |
+| [multi-wallet.tsx](skills/cavos-react/scripts/multi-wallet.tsx) | Sub-account management |
+
+## Contributing
+
+Found a bug pattern your AI keeps hitting? Add it to the relevant reference doc and submit a PR.
 
 ---
 Built with ⚡ by [Cavos Labs](https://cavos.network)
