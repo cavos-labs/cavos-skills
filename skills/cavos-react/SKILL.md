@@ -16,7 +16,7 @@ Cavos is a **non-custodial account abstraction SDK** for Starknet. It lets users
 
 ### Key Principles
 - **Non-custodial**: The user's wallet is derived deterministically from their OAuth `sub` claim + a per-app salt. No one holds the keys.
-- **Gasless by default**: All transactions go through the AVNU paymaster (SNIP-9 Outside Execution).
+- **Gasless by default**: All transactions go through the Cavos paymaster (SNIP-9 Outside Execution).
 - **Session keys**: Ephemeral ECDSA keys that sign transactions on behalf of the user, with configurable spending limits and contract restrictions.
 
 ---
@@ -39,7 +39,7 @@ Cavos is a **non-custodial account abstraction SDK** for Starknet. It lets users
 │   │ OAuthWallet  │ │  Session  │ │ Transaction │      │
 │   │   Manager    │ │  Manager  │ │   Manager   │      │
 │   └──────────────┘ └───────────┘ └─────────────┘      │
-│     Identity &        Key          AVNU Paymaster       │
+│     Identity &        Key          Cavos Paymaster      │
 │     JWT handling    lifecycle      & SNIP-9 execution   │
 └─────────────────────────────────────────────────────────┘
                           │
@@ -71,7 +71,7 @@ interface CavosConfig {
   backendUrl?: string;                  // Default: 'https://cavos.xyz'
   starknetRpcUrl?: string;              // Custom RPC (optional)
   network?: 'mainnet' | 'sepolia';      // Default: 'sepolia'
-  paymasterApiKey?: string;             // AVNU key (optional, shared key used if omitted)
+  paymasterApiKey?: string;             // Cavos Paymaster API Key (optional)
   enableLogging?: boolean;              // Debug logs (default: false)
   oauthWallet?: Partial<OAuthWalletConfig>;  // Advanced: custom class hash, registry
   session?: SessionConfig;              // Session duration & default policy
@@ -218,7 +218,7 @@ execute(calls)
 ### 5.3 Account Deployment
 
 Accounts are deployed **lazily** — on the first `execute()` call or explicitly via `deployAccount()`.
-- Uses AVNU Paymaster for **gasless self-deployment**.
+- Uses Cavos Paymaster for **gasless self-deployment**.
 - The contract's `__validate_deploy__` verifies the JWT and registers the session key simultaneously.
 - No relayer needed — fully self-custodial.
 
@@ -346,7 +346,7 @@ When modifying the SDK, here's where things live:
 | `src/types/config.ts` | `CavosConfig`, `SessionConfig`, `OAuthWalletConfig` |
 | `src/types/session.ts` | `SessionKeyPolicy`, `SessionData` |
 | `src/types/auth.ts` | `UserInfo`, `LoginProvider`, `FirebaseCredentials` |
-| `src/paymaster/PaymasterIntegration.ts` | AVNU paymaster wrapper |
+| `src/paymaster/PaymasterIntegration.ts` | Cavos paymaster wrapper |
 | `src/config/defaults.ts` | Network-specific defaults (class hashes, registry addresses) |
 
 ---
