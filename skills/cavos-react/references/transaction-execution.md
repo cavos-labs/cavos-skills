@@ -6,7 +6,7 @@ All transactions in Cavos go through the AVNU paymaster for gasless execution, b
 
 ### Path 1: JWT Signature (`OAUTH_JWT_V1`)
 
-Used when the session is **not yet registered** on-chain (first transaction or explicit registration).
+Used as a **fallback** when the session is **not yet registered** on-chain. Normally, the session is auto-registered after `login()`, but if that background process hasn't completed yet, `execute()` transparently falls back to JWT signature to register + execute atomically.
 
 **What's in the signature:**
 ```

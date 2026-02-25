@@ -29,37 +29,38 @@ This is handled by `AddressSeedManager.computeContractAddress()`.
 
 ## Deployment Flow
 
+After `login()`, the SDK automatically triggers deployment in the background:
+
 ```
-User calls deployAccount() or first execute()
+login() → handleCallback() → deployAccountInBackground()
     │
     ▼
-OAuthTransactionManager.deployAccount()
+CavosSDK.deployAccountInBackground()
     │
-    ├─ 1. Create counterfactual Account with PaymasterRpc
-    │     (address is known, but no contract exists yet)
+    ├─ 1. Check if already deployed (getClassHashAt)
+    │     If yes → skip to session check
     │
-    ├─ 2. Build AccountDeploymentData
-    │     { classHash, constructorCalldata, addressSalt }
+    ├─ 2. Deploy via OAuthTransactionManager.deployAccount()
+    │     → Create counterfactual Account with PaymasterRpc
+    │     → Build AccountDeploymentData
+    │     → OAuthSigner.signDeployAccountTransaction()
+    │       → buildJWTSignatureData() → OAUTH_JWT_V1 signature
+    │     → Execute via AVNU Paymaster (gasless)
+    │     → On-chain: __validate_deploy__ verifies JWT + stores address_seed
     │
-    ├─ 3. OAuthSigner.signDeployAccountTransaction()
-    │     → buildJWTSignatureData() → OAUTH_JWT_V1 signature
-    │     → Includes full JWT + RSA modulus + session policy
-    │
-    ├─ 4. Execute via AVNU Paymaster (gasless)
-    │     → PaymasterRpc handles gas sponsoring
-    │
-    └─ 5. On-chain: __validate_deploy__
-          → Verifies JWT signature (RSA)
-          → Stores address_seed
-          → Registers session key with policy
+    └─ 3. Auto-register session via autoRegisterSession()
+          → registerCurrentSession() with JWT signature
+          → walletStatus.isReady = true ✅
 ```
 
 ### Key Points
 
+- **Fully automatic** — no manual `deployAccount()` or `registerCurrentSession()` calls needed.
 - **No relayer needed** — the account deploys itself via PaymasterRpc.
-- **Session is registered during deployment** — no separate registration step needed.
+- **Session is auto-registered after deployment** — `walletStatus.isReady` only becomes `true` when both deploy + registration succeed.
 - **Gasless** — AVNU sponsors the deployment gas.
 - **Idempotent** — calling `deployAccount()` when already deployed is safe (returns early).
+- **JWT fallback** — if auto-registration hasn't completed, `execute()` falls back to JWT signature.
 
 ## Multi-Wallet (Sub-Accounts)
 

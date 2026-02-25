@@ -201,8 +201,8 @@ execute(calls)
     │
     ├─ Session NOT registered?
     │   └─ Uses JWT signature (OAUTH_JWT_V1)
-    │      → Registers session + executes in ONE atomic tx
-    │      → Expensive (RSA verification on-chain)
+    │      → Auto-registers session + executes in ONE atomic tx
+    │      → This is a fallback — normally session is pre-registered after login
     │
     ├─ Session registered & active?
     │   └─ Uses session signature (SESSION_V1)
@@ -217,9 +217,12 @@ execute(calls)
 
 ### 5.3 Account Deployment
 
-Accounts are deployed **lazily** — on the first `execute()` call or explicitly via `deployAccount()`.
-- Uses Cavos Paymaster for **gasless self-deployment**.
-- The contract's `__validate_deploy__` verifies the JWT and registers the session key simultaneously.
+Accounts are deployed **automatically after login** — no manual steps needed.
+- After `login()`, the SDK calls `deployAccountInBackground()` which:
+  1. Deploys the account via Cavos Paymaster (gasless) if not already deployed
+  2. Auto-registers the session key on-chain using JWT signature
+  3. Updates `walletStatus.isReady = true` when both steps complete
+- `walletStatus` transitions: `isDeploying → isDeployed → isRegistering → isSessionActive → isReady ✅`
 - No relayer needed — fully self-custodial.
 
 ### 5.4 Address Derivation
