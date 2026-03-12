@@ -129,7 +129,9 @@ const {
   logout,                   // () => Promise<void>
 
   // --- Transactions ---
-  execute,                  // (calls: Call | Call[]) => Promise<string>  → returns tx hash
+  execute,                  // (calls: Call | Call[], options?: { gasless?: boolean }) => Promise<string>
+                            //   gasless: true (default) → Cavos Paymaster sponsors gas
+                            //   gasless: false → wallet pays gas from its own STRK balance
   signMessage,              // (typedData: TypedData) => Promise<Signature>  (SNIP-12)
 
   // --- Session Management ---
@@ -197,22 +199,24 @@ See: [Policy Synchronization Deep Dive](./references/policy-synchronization.md)
 ### 5.2 Transaction Execution Flow
 
 ```
-execute(calls)
+execute(calls, { gasless? })   (gasless defaults to true)
     │
     ├─ Session NOT registered?
-    │   └─ Uses JWT signature (OAUTH_JWT_V1)
-    │      → Auto-registers session + executes in ONE atomic tx
-    │      → This is a fallback — normally session is pre-registered after login
+    │   ├─ gasless: true  → JWT signature (OAUTH_JWT_V1), auto-registers + executes atomically
+    │   └─ gasless: false → THROWS — must register session first (via sponsored tx)
     │
     ├─ Session registered & active?
-    │   └─ Uses session signature (SESSION_V1)
-    │      → Lightweight, fast
+    │   ├─ gasless: true  → Cavos Paymaster (SNIP-9 Outside Execution)
+    │   └─ gasless: false → Direct v3 INVOKE via raw RPC (wallet pays STRK)
+    │                        • Custom fee estimation (dummy SESSION_V1 sig + 5M gas overhead for __validate__)
+    │                        • Hash computed manually, submitted via starknet_addInvokeTransaction
+    │                        • Bypasses starknet.js Account.execute() entirely
     │
     ├─ Session expired but within grace period?
-    │   └─ Auto-renews session, then executes
+    │   └─ Auto-renews session (always sponsored), then executes with chosen gasless option
     │
     └─ Session expired beyond grace period?
-        └─ Throws error → user must re-login
+        └─ Throws "SESSION_EXPIRED" → user must re-login
 ```
 
 ### 5.3 Account Deployment
@@ -276,11 +280,18 @@ function App() {
 ### Execute a Token Transfer
 
 ```typescript
+// Sponsored (default)
 const tx = await execute({
   contractAddress: '0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d', // STRK
   entrypoint: 'transfer',
   calldata: [recipientAddress, amountLow, amountHigh] // uint256 = [low, high]
 });
+
+// User pays gas
+const tx = await execute(
+  { contractAddress: '0x04718...', entrypoint: 'transfer', calldata: [...] },
+  { gasless: false }
+);
 ```
 
 ### Multi-Call (Approve + Swap)
@@ -320,6 +331,9 @@ const token = exportSession();
 | "Claim mismatch after decoding" | JWT kid rotation or issuer mismatch | Check JWKS registry is up to date |
 | Account not deploying | No ETH/STRK for gas | Use paymaster (default) or fund the counterfactual address |
 | `useCavos` throws "must be used within CavosProvider" | Component is outside the provider tree | Wrap your app in `<CavosProvider>` |
+| "non-sponsored transaction without a registered session" | `gasless: false` called before any on-chain session | Execute one sponsored tx first, or call `registerCurrentSession()` |
+| "Out of gas" in `__validate__` (user-pays path) | SKIP_VALIDATE estimation doesn't include validation gas | Already handled: SDK adds 5M L2-gas overhead automatically |
+| "Resource bounds not satisfied" (user-pays path) | l1_gas.max_price_per_unit=0 in submitted tx | Already handled: SDK reads current l1_gas_price from estimateFee response |
 
 ---
 
