@@ -44,12 +44,14 @@ CavosSDK.deployAccountInBackground()
     │     → Create counterfactual Account with PaymasterRpc
     │     → Build AccountDeploymentData
     │     → OAuthSigner.signDeployAccountTransaction()
-    │       → buildJWTSignatureData() → OAUTH_JWT_V1 signature
+    │       → buildJWTSignatureData()    ← computes Garaga RSA witnesses off-chain
+    │       → assembles OAUTH_JWT_V1 signature (~900+ felts)
     │     → Execute via AVNU Paymaster (gasless)
-    │     → On-chain: __validate_deploy__ verifies JWT + stores address_seed
+    │     → On-chain: __validate_deploy__ calls Garaga RSA-2048 (~11.8M gas),
+    │                 validates JWT claims, stores address_seed
     │
     └─ 3. Auto-register session via autoRegisterSession()
-          → registerCurrentSession() with JWT signature
+          → registerCurrentSession() with OAUTH_JWT_V1 signature
           → walletStatus.isReady = true ✅
 ```
 

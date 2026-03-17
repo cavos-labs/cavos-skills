@@ -8,26 +8,52 @@ All transactions in Cavos go through the AVNU paymaster for gasless execution, b
 
 Used as a **fallback** when the session is **not yet registered** on-chain. Normally, the session is auto-registered after `login()`, but if that background process hasn't completed yet, `execute()` transparently falls back to JWT signature to register + execute atomically.
 
-**What's in the signature:**
+**What's in the calldata (~900+ felts, varies with JWT size and policies):**
 ```
-[
-  OAUTH_JWT_V1 magic (0x4f415554485f4a57545f5631),
-  r, s,                          // ECDSA signature from session key
-  session_pubkey,
-  valid_until, renewal_deadline,  // Session timestamps
-  jwt_length, ...jwt_chunks,     // Raw JWT (base64url, split into 31-byte felts)
-  rsa_modulus (16 u128 limbs),   // From JWKS
-  montgomery_constants (32 values),
-  claim_offsets (6 values),       // Where sub/nonce/kid are in the JWT
-  allowed_contracts_count, ...contracts,
-  max_calls_per_tx,
-  spending_policies_count, ...policies
-]
+[0]      OAUTH_JWT_V1 magic (0x4f415554485f4a57545f5631)
+[1]      r  (ECDSA r from session key)
+[2]      s  (ECDSA s from session key)
+[3]      session_pubkey
+[4]      valid_until (u64 block number)
+[5]      randomness
+[6]      jwt_sub      — OAuth user ID from JWT payload
+[7]      jwt_nonce    — Poseidon(session_key, valid_until, randomness)
+[8]      jwt_exp      — expiration timestamp
+[9]      jwt_kid      — key ID hash (links JWT to JWKS entry)
+[10]     jwt_iss      — issuer hash (google/apple/firebase)
+[11]     salt         — per-app salt for address derivation
+[12]     wallet_name  — wallet name hash (0 for default wallet)
+[13-24]  claim offsets (12 felts):
+         sub_offset, sub_len, nonce_offset, nonce_len,
+         kid_offset, kid_len, exp_offset, exp_len,
+         iss_offset, iss_len, aud_offset, aud_len
+[25]     864          — Garaga RSA calldata length (always 864)
+[26-889] Garaga RSA-2048 calldata (864 felts):
+         - RSA signature     (24 × u96 limbs, little-endian)
+         - PKCS#1 SHA-256    (24 × u96 limbs — expected message)
+         - 17 × 48 felts     — modular reduction witnesses
+           (16 squarings + 1 final multiply, each as quotient + remainder)
+[890]    jwt_bytes_len
+[891+]   packed JWT bytes (header.payload, split into 31-byte felt252 chunks)
+[...]    valid_after
+[...]    allowed_contracts_root  (Merkle root; 0 = unrestricted)
+[...]    max_calls_per_tx
+[...]    spending_policies_count
+[...]    ...policies (token, limit_low, limit_high triplets)
 ```
 
-**On-chain**: The contract performs RSA verification of the JWT signature, validates claims, and registers the session key + policy.
+**How the SDK builds this (`buildJWTSignatureData()`):**
+1. Extracts RSA signature from JWT (third base64url segment, decoded)
+2. Converts RSA sig to 24 × u96 limbs (little-endian)
+3. Fetches RSA modulus from on-chain JWKS registry (`fetchNFromRegistry(kid)`)
+4. Runs `rsa2048Sha256CalldataBuilder()` — computes the 17 modular reduction witnesses off-chain
+5. Packs JWT bytes (header.payload) as 31-byte felt252 chunks
+6. Locates claim offsets (sub, nonce, kid, exp, iss, aud) within the JWT for on-chain verification
+7. Assembles the full calldata array above
 
-**Cost**: Expensive (~2M gas) due to RSA verification.
+**On-chain**: The contract calls `is_valid_rsa2048_sha256_signature()` (Garaga RSA-2048), validates all JWT claims, binds the nonce to the session key, and registers the session + policy.
+
+**Cost**: ~11.8M gas for Garaga RSA-2048 verification (the dominant cost).
 
 ### Path 2: Session Signature (`SESSION_V1`)
 

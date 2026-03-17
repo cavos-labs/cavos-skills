@@ -121,35 +121,40 @@ const {
   address,                  // string | null → '0x...' Starknet address
   hasActiveSession,         // boolean
   isLoading,                // boolean — true during init/login
-  walletStatus,             // WalletStatus → { isDeploying, isDeployed, isRegistering, isSessionActive, isReady }
+  walletStatus,             // WalletStatus → { isDeploying, isDeployed, isRegistering, isSessionActive, isReady, pendingDeployTxHash? }
+  sessionPublicKey,         // string | null — public key of current session key (safe to display)
 
   // --- Auth ---
-  login,                    // (provider: 'google'|'apple'|'firebase', creds?) => Promise<void>
-  register,                 // (provider, { email, password }) => Promise<void>  (Firebase only)
+  login,                    // (provider: 'google'|'apple') => Promise<void>
+  sendMagicLink,            // (email: string) => Promise<void>  — passwordless; auth completes in background
   logout,                   // () => Promise<void>
 
   // --- Transactions ---
   execute,                  // (calls: Call | Call[], options?: { gasless?: boolean }) => Promise<string>
                             //   gasless: true (default) → Cavos Paymaster sponsors gas
                             //   gasless: false → wallet pays gas from its own STRK balance
-  signMessage,              // (typedData: TypedData) => Promise<Signature>  (SNIP-12)
+  signMessage,              // (typedData: TypedData) => Promise<string[]>  (SNIP-12 → [SESSION_V1_magic, r, s, session_key])
 
   // --- Session Management ---
   registerCurrentSession,   // () => Promise<string>  → explicit on-chain registration
   updateSessionPolicy,      // (policy: SessionKeyPolicy) => void  → MUST call before register!
   renewSession,             // () => Promise<string>
-  revokeSession,            // (sessionKey: string) => Promise<string>
+  revokeSession,            // (sessionKey: string) => Promise<string>  — sessionKey is REQUIRED
   emergencyRevokeAllSessions, // () => Promise<string>  → nuclear option
   exportSession,            // () => string  → base64 token for CLI
 
   // --- Account ---
   isAccountDeployed,        // () => Promise<boolean>
   deployAccount,            // () => Promise<string>
-  getBalance,               // () => Promise<string>  → ETH balance as string
+  getBalance,               // () => Promise<string>  → ETH balance as string (wei)
 
   // --- Multi-Wallet ---
   getAssociatedWallets,     // () => Promise<{ address: string; name?: string }[]>
   switchWallet,             // (name?: string) => Promise<void>
+
+  // --- Modal ---
+  openModal,                // () => void  — open built-in auth modal
+  closeModal,               // () => void  — close built-in auth modal
 
   // --- Utilities ---
   getOnramp,                // (provider: 'RAMP_NETWORK') => string  → fiat onramp URL
@@ -164,9 +169,24 @@ const {
 
 | Provider | Method | Notes |
 |----------|--------|-------|
-| `'google'` | `login('google')` | Redirects to Google OAuth. Address derived from Google `sub`. |
-| `'apple'` | `login('apple')` | Redirects to Apple OAuth. Address derived from Apple `sub`. |
-| `'firebase'` | `login('firebase', { email, password })` | Email/password via Firebase. Must `register()` first. |
+| `'google'` | `login('google')` | Opens new tab → Google OAuth. Address derived from Google `sub`. |
+| `'apple'` | `login('apple')` | Opens new tab → Apple OAuth. Address derived from Apple `sub`. |
+| Magic Link | `sendMagicLink(email)` | Passwordless. Email sent immediately; auth completes in background when user clicks link. |
+
+### 4.3 WalletStatus
+
+```typescript
+interface WalletStatus {
+  isDeploying: boolean;           // Account contract is being deployed
+  isDeployed: boolean;            // Account contract is deployed on-chain
+  isRegistering: boolean;         // Session key is being registered on-chain
+  isSessionActive: boolean;       // Session key is registered and not expired
+  isReady: boolean;               // Both deployed + session active — ready for transactions
+  pendingDeployTxHash?: string;   // Set when deploy tx submitted but confirmation timed out
+}
+```
+
+`pendingDeployTxHash` is useful to show an explorer link when deployment takes longer than expected (e.g., network congestion). The SDK persists this hash in localStorage and re-polls on next `init()`.
 
 ---
 
@@ -250,8 +270,19 @@ Between `valid_until` and `renewal_deadline`, the **old session key** can sign a
 ### 5.6 Session Revocation
 
 Two levels of revocation:
-- `revokeSession(pubKey)`: Invalidates one specific session key. Requires JWT.
+- `revokeSession(sessionKey: string)`: Invalidates one specific session key (the `sessionKey` parameter is **required** — pass `sessionPublicKey` to revoke the current one). Requires JWT.
 - `emergencyRevokeAllSessions()`: Increments the on-chain `revocation_epoch`, invalidating ALL sessions. Nuclear option.
+
+### 5.7 Magic Link Authentication
+
+`sendMagicLink(email)` is a fire-and-forget method:
+1. Sends a magic link email via the Cavos backend (returns immediately)
+2. The SDK starts polling `localStorage` for `cavos_auth_result`
+3. When the user clicks the link (in any tab / device), the auth tab writes the result to localStorage and closes
+4. The SDK picks up the result via `storage` event or poll, calls `handleCallback()`, then fires `onAuthChange` listeners
+5. React state (`isAuthenticated`, `address`, `walletStatus`) updates automatically
+
+To react to magic link completion in UI, subscribe via `cavos.onAuthChange(cb)` or simply observe `isAuthenticated` changing.
 
 ---
 
@@ -328,12 +359,16 @@ const token = exportSession();
 | Transfer goes through despite limit | `policy_count == 0` on-chain | Call `updateSessionPolicy()` before `registerCurrentSession()` |
 | "Address seed mismatch" | Different `sub` or `salt` between login and verification | Ensure `appSalt` is fetched correctly from backend |
 | "SESSION_EXPIRED" | Session older than `valid_until` | Call `renewSession()` if within grace period, else re-login |
+| `JwtExpiredError` thrown on `execute()` | OAuth JWT expired (typically after 1h) | Re-login via `login(provider)` |
 | "Claim mismatch after decoding" | JWT kid rotation or issuer mismatch | Check JWKS registry is up to date |
 | Account not deploying | No ETH/STRK for gas | Use paymaster (default) or fund the counterfactual address |
 | `useCavos` throws "must be used within CavosProvider" | Component is outside the provider tree | Wrap your app in `<CavosProvider>` |
 | "non-sponsored transaction without a registered session" | `gasless: false` called before any on-chain session | Execute one sponsored tx first, or call `registerCurrentSession()` |
 | "Out of gas" in `__validate__` (user-pays path) | SKIP_VALIDATE estimation doesn't include validation gas | Already handled: SDK adds 5M L2-gas overhead automatically |
 | "Resource bounds not satisfied" (user-pays path) | l1_gas.max_price_per_unit=0 in submitted tx | Already handled: SDK reads current l1_gas_price from estimateFee response |
+| Magic link auth never completes | localStorage blocked (private browsing / iframe) | Ensure app is not in a sandboxed iframe; magic link requires localStorage access |
+| `revokeSession()` throws "missing argument" | `sessionKey` parameter is required | Pass `sessionPublicKey` from `useCavos()`: `revokeSession(sessionPublicKey!)` |
+| `pendingDeployTxHash` never clears | Deploy tx still unconfirmed | Link to explorer; SDK will re-poll on next page load |
 
 ---
 
@@ -377,6 +412,10 @@ When modifying the SDK, here's where things live:
 5. **After SDK changes**: Run `npm run build` in `react/`, then copy `dist/` to consumer's `node_modules/@cavos/react/dist/`.
 6. **Session storage** is `sessionStorage` (cleared on tab close) — this is intentional for security.
 7. **Wallet names** are currently stored in `localStorage` (`cavos_seen_wallets_${appId}_${sub}`) — not persistent across devices.
+8. **`revokeSession(sessionKey)`** — the `sessionKey` argument is **required**. Use `sessionPublicKey` from `useCavos()` to revoke the current session.
+9. **`sendMagicLink`** is fire-and-forget. Auth completes via `onAuthChange` listeners, not via a returned Promise. Don't await auth state in the same call chain.
+10. **`signMessage` returns `string[]`**, not a `{ r, s }` object. The array is `[SESSION_V1_magic, r, s, session_key]` — ready for on-chain `is_valid_signature`.
+11. **`pendingDeployTxHash`** in `WalletStatus` is set when a deploy tx was submitted but confirmation timed out. It persists in localStorage across page loads until the tx confirms.
 
 ---
 
