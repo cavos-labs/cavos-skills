@@ -12,7 +12,7 @@ description: "Complete knowledge base for the Cavos React SDK — Starknet accou
 
 ## 1. What is Cavos?
 
-Cavos is a **non-custodial account abstraction SDK** for Starknet. It lets users create smart wallets using their existing OAuth identity (Google, Apple, Firebase email/password) — no seed phrases, no browser extensions.
+Cavos is a **non-custodial account abstraction SDK** for Starknet. It lets users create smart wallets using their existing OAuth identity (Google, Apple, or passwordless Magic Link) — no seed phrases, no browser extensions.
 
 ### Key Principles
 - **Non-custodial**: The user's wallet is derived deterministically from their OAuth `sub` claim + a per-app salt. No one holds the keys.
@@ -158,7 +158,6 @@ const {
 
   // --- Utilities ---
   getOnramp,                // (provider: 'RAMP_NETWORK') => string  → fiat onramp URL
-  resendVerificationEmail,  // (email: string) => Promise<void>
 
   // --- Raw SDK (Advanced) ---
   cavos,                    // CavosSDK instance for direct access
@@ -284,6 +283,104 @@ Two levels of revocation:
 
 To react to magic link completion in UI, subscribe via `cavos.onAuthChange(cb)` or simply observe `isAuthenticated` changing.
 
+### 5.8 Auth Modal (`CavosAuthModal`)
+
+The SDK ships a fully managed auth modal. The recommended pattern is to pass `modal` to `CavosProvider` and call `openModal()`:
+
+```tsx
+// app/providers.tsx
+<CavosProvider
+  config={{ appId: 'YOUR_APP_ID', network: 'sepolia' }}
+  modal={{
+    appName: 'My App',
+    theme: 'dark',
+    providers: ['google', 'apple', 'email'],  // default: all three
+    primaryColor: '#6366f1',
+    onSuccess: (address) => console.log('Wallet ready:', address),
+  }}
+>
+  {children}
+</CavosProvider>
+
+// Anywhere in your app:
+const { openModal } = useCavos();
+<button onClick={openModal}>Connect Wallet</button>
+```
+
+#### `CavosModalConfig` Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `appName` | `string` | — | Shown in header: *"Sign in to {appName}"*. Omit for *"Log in or sign up"*. |
+| `providers` | `('google'\|'apple'\|'email')[]` | all three | Which auth methods to show. |
+| `primaryColor` | `string` | `'#0A0908'` | Magic link submit button color. |
+| `theme` | `'light'\|'dark'` | `'light'` | Color scheme. |
+| `onSuccess` | `(address: string) => void` | — | Fires ~1.6s after `walletStatus.isReady`. |
+
+#### Modal Screens (internal — not controllable)
+
+| Screen | Shown when |
+|--------|-----------|
+| `select` | Default — provider selection |
+| `magic-link` | User typed an email and pressed Submit |
+| `verify` | Magic link sent — waiting for click |
+| `deploying` | User authenticated — wallet deploying |
+
+**`deploying` screen cannot be dismissed** — clicking outside or the close button has no effect. This prevents navigating away before the wallet is ready.
+
+On screens ≤640px, the modal renders as a **bottom sheet** instead of a centered dialog.
+
+#### `useCavosAuth` convenience hook
+
+Minimal hook for a connect button:
+
+```tsx
+import { useCavosAuth } from '@cavos/react';
+
+const { openModal, closeModal, isAuthenticated, address, user, walletStatus, logout } = useCavosAuth();
+```
+
+#### Direct component usage (advanced)
+
+```tsx
+import { CavosAuthModal } from '@cavos/react';
+
+<CavosAuthModal
+  open={open}
+  onClose={() => setOpen(false)}
+  onSuccess={(address) => { setOpen(false); }}
+  appName="My App"
+  theme="dark"
+  providers={['google', 'apple', 'email']}
+  primaryColor="#6366f1"
+/>
+```
+
+> `CavosAuthModal` **must** be inside a `<CavosProvider>` — it uses `useCavos()` internally.
+
+---
+
+## 5.9 DEPRECATED APIs — NEVER USE
+
+The following APIs no longer exist in the SDK. Any code that references them will fail at runtime. **Do not generate code using these.**
+
+| Removed API | Replacement |
+|-------------|-------------|
+| `login('firebase', email, password)` | `sendMagicLink(email)` |
+| `register(email, password)` | removed — no registration needed |
+| `resendVerificationEmail(email)` | removed |
+| `EmailNotVerifiedError` | removed |
+| `EmailVerificationRequiredError` | removed |
+| `FirebaseCredentials` type | removed |
+| `createWallet()` | automatic after `login()` |
+| `deleteAccount()` | removed |
+| `retryWalletUnlock()` | removed |
+| `hasPasskeyOnlyWallet` | removed |
+| `createSession({ allowedMethods, expiresAt })` | `registerCurrentSession()` + `updateSessionPolicy()` |
+| `useSession()` hook | use `useCavos()` directly |
+| `requiresWalletCreation` | removed — wallet auto-deploys |
+| `WalletManager` / `TransactionManager` | `OAuthWalletManager` / `OAuthTransactionManager` |
+
 ---
 
 ## 6. Common Patterns
@@ -397,7 +494,7 @@ When modifying the SDK, here's where things live:
 | `src/oauth/NonceManager.ts` | Session nonce for JWT binding |
 | `src/types/config.ts` | `CavosConfig`, `SessionConfig`, `OAuthWalletConfig` |
 | `src/types/session.ts` | `SessionKeyPolicy`, `SessionData` |
-| `src/types/auth.ts` | `UserInfo`, `LoginProvider`, `FirebaseCredentials` |
+| `src/types/auth.ts` | `UserInfo`, `LoginProvider` |
 | `src/paymaster/PaymasterIntegration.ts` | Cavos paymaster wrapper |
 | `src/config/defaults.ts` | Network-specific defaults (class hashes, registry addresses) |
 
