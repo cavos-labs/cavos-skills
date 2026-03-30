@@ -69,14 +69,27 @@ Cavos is a **non-custodial account abstraction SDK** for Starknet. It lets users
 interface CavosConfig {
   appId: string;                        // From https://cavos.xyz/dashboard
   backendUrl?: string;                  // Default: 'https://cavos.xyz'
-  starknetRpcUrl?: string;              // Custom RPC (optional)
-  network?: 'mainnet' | 'sepolia';      // Default: 'sepolia'
-  paymasterApiKey?: string;             // Cavos Paymaster API Key (optional)
-  enableLogging?: boolean;              // Debug logs (default: false)
+  starknetRpcUrl?: string;             // Custom RPC (optional)
+  network?: 'mainnet' | 'sepolia';     // Default: 'sepolia'
+  paymasterApiKey?: string;            // Cavos Paymaster API Key (optional)
+  enableLogging?: boolean;             // Debug logs (default: false)
   oauthWallet?: Partial<OAuthWalletConfig>;  // Advanced: custom class hash, registry
-  session?: SessionConfig;              // Session duration & default policy
+  session?: SessionConfig;             // Session duration & default policy
+  slot?: SlotConfig;                   // Cartridge Slot (Katana) — enables executeOnSlot()
 }
 ```
+
+### `SlotConfig`
+
+```typescript
+interface SlotConfig {
+  rpcUrl: string;    // RPC URL of your Cartridge Katana Slot instance
+  chainId?: string;  // Optional — chain ID (e.g. '0x534e5f4d41494e'). Fetched dynamically if omitted.
+}
+```
+
+> [!IMPORTANT]
+> **No relayer configuration is needed.** The SDK uses a built-in Cavos relayer internally for the first JWT session registration on Slot. This is not overridable by developers. If `slot` is absent from the config, nothing Slot-related happens and `executeOnSlot()` will throw.
 
 ### `SessionConfig`
 
@@ -133,6 +146,9 @@ const {
   execute,                  // (calls: Call | Call[], options?: { gasless?: boolean }) => Promise<string>
                             //   gasless: true (default) → Cavos Paymaster sponsors gas
                             //   gasless: false → wallet pays gas from its own STRK balance
+  executeOnSlot,            // (calls: Call | Call[]) => Promise<string>
+                            //   Routes to Cartridge Slot (Katana) — always fee-free, no paymaster
+                            //   Requires slot config. First call deploys account + registers session on Slot.
   signMessage,              // (typedData: TypedData) => Promise<string[]>  (SNIP-12 → [SESSION_V1_magic, r, s, session_key])
 
   // --- Session Management ---
@@ -238,7 +254,58 @@ execute(calls, { gasless? })   (gasless defaults to true)
         └─ Throws "SESSION_EXPIRED" → user must re-login
 ```
 
-### 5.3 Account Deployment
+### 5.3 Slot (Cartridge Katana) Execution
+
+`executeOnSlot(calls)` routes transactions to a Cartridge Slot instance. Slot runs with `no_fee = true`, so no paymaster is needed.
+
+**Flow:**
+```
+executeOnSlot(calls)
+    │
+    ├─ First call ever on Slot?
+    │   1. Deploy account on Slot (mirror of mainnet account)
+    │   2. Register session key via execute_from_outside_v2 (built-in Cavos relayer handles this)
+    │   3. Execute the call with session key
+    │
+    └─ Session already registered on Slot?
+        └─ Direct invoke with SESSION_V1 session key signature (no relayer, no paymaster)
+```
+
+**Config pattern:**
+```tsx
+<CavosProvider
+  config={{
+    appId: 'YOUR_APP_ID',
+    network: 'mainnet',       // Slot is forked from mainnet
+    paymasterApiKey: 'key',
+    slot: {
+      rpcUrl: 'https://api.cartridge.gg/x/your-project/katana',
+      // chainId: '0x...',   // Optional — skip to auto-detect
+    },
+    session: {
+      defaultPolicy: {
+        allowedContracts: [GAME_CONTRACT],  // Must include Slot contracts
+        maxCallsPerTx: 10,
+      },
+    },
+  }}
+>
+```
+
+**Usage:**
+```typescript
+// All calls go to Slot — always fee-free
+const txHash = await executeOnSlot({
+  contractAddress: GAME_CONTRACT,
+  entrypoint: 'make_move',
+  calldata: ['42', '7'],
+});
+```
+
+> [!CAUTION]
+> **Never configure the relayer yourself** — the SDK hardcodes the Cavos relayer for Slot. There is no `relayerAddress` or `relayerPrivateKey` in `SlotConfig`. Adding them would be a breaking API error.
+
+### 5.4 Account Deployment
 
 Accounts are deployed **automatically after login** — no manual steps needed.
 - After `login()`, the SDK calls `deployAccountInBackground()` which:
@@ -248,7 +315,7 @@ Accounts are deployed **automatically after login** — no manual steps needed.
 - `walletStatus` transitions: `isDeploying → isDeployed → isRegistering → isSessionActive → isReady ✅`
 - No relayer needed — fully self-custodial.
 
-### 5.4 Address Derivation
+### 5.5 Address Derivation
 
 The wallet address is **deterministic** and derived from:
 ```
@@ -258,7 +325,7 @@ address = Poseidon(sub, salt, walletName?)
 - `salt`: Per-app salt fetched from the Cavos backend
 - `walletName`: Optional name for sub-accounts (default: unnamed)
 
-### 5.5 Session Renewal
+### 5.6 Session Renewal
 
 Sessions have two time boundaries:
 - `valid_until`: When the session expires (default: 24h after registration)
@@ -266,13 +333,13 @@ Sessions have two time boundaries:
 
 Between `valid_until` and `renewal_deadline`, the **old session key** can sign a renewal request for a **new session key**, without needing a new JWT.
 
-### 5.6 Session Revocation
+### 5.7 Session Revocation
 
 Two levels of revocation:
 - `revokeSession(sessionKey: string)`: Invalidates one specific session key (the `sessionKey` parameter is **required** — pass `sessionPublicKey` to revoke the current one). Requires JWT.
 - `emergencyRevokeAllSessions()`: Increments the on-chain `revocation_epoch`, invalidating ALL sessions. Nuclear option.
 
-### 5.7 Magic Link Authentication
+### 5.8 Magic Link Authentication
 
 `sendMagicLink(email)` is a fire-and-forget method:
 1. Sends a magic link email via the Cavos backend (returns immediately)
@@ -283,7 +350,7 @@ Two levels of revocation:
 
 To react to magic link completion in UI, subscribe via `cavos.onAuthChange(cb)` or simply observe `isAuthenticated` changing.
 
-### 5.8 Auth Modal (`CavosAuthModal`)
+### 5.9 Auth Modal (`CavosAuthModal`)
 
 The SDK ships a fully managed auth modal. The recommended pattern is to pass `modal` to `CavosProvider` and call `openModal()`:
 
@@ -360,7 +427,7 @@ import { CavosAuthModal } from '@cavos/react';
 
 ---
 
-## 5.9 DEPRECATED APIs — NEVER USE
+## 5.10 DEPRECATED APIs — NEVER USE
 
 The following APIs no longer exist in the SDK. Any code that references them will fail at runtime. **Do not generate code using these.**
 
@@ -466,6 +533,11 @@ const token = exportSession();
 | Magic link auth never completes | localStorage blocked (private browsing / iframe) | Ensure app is not in a sandboxed iframe; magic link requires localStorage access |
 | `revokeSession()` throws "missing argument" | `sessionKey` parameter is required | Pass `sessionPublicKey` from `useCavos()`: `revokeSession(sessionPublicKey!)` |
 | `pendingDeployTxHash` never clears | Deploy tx still unconfirmed | Link to explorer; SDK will re-poll on next page load |
+| `executeOnSlot` throws "Slot not configured" | `slot` key missing from config | Add `slot: { rpcUrl: '...' }` to `CavosProvider` config |
+| First Slot tx is slow | Deploys account + registers session on Slot (one-time) | Expected — subsequent calls are instant |
+| "Invalid session key signature" on Slot | Old SDK with broken y-parity fix | Update `@cavos/react` to latest; SDK now normalizes session key y-coordinate |
+| Slot tx rejected — "not in policy" | Game contract not in `allowedContracts` | Add Slot contract address to `session.defaultPolicy.allowedContracts` |
+| Wrong chain ID on Slot | Custom Katana with non-standard chain ID | Pass `chainId` explicitly in `slot` config to skip auto-detection |
 
 ---
 
@@ -496,7 +568,7 @@ When modifying the SDK, here's where things live:
 | `src/types/session.ts` | `SessionKeyPolicy`, `SessionData` |
 | `src/types/auth.ts` | `UserInfo`, `LoginProvider` |
 | `src/paymaster/PaymasterIntegration.ts` | Cavos paymaster wrapper |
-| `src/config/defaults.ts` | Network-specific defaults (class hashes, registry addresses) |
+| `src/config/defaults.ts` | Network-specific defaults (class hashes, registry addresses, hardcoded Slot relayer) |
 
 ---
 
@@ -512,6 +584,8 @@ When modifying the SDK, here's where things live:
 8. **`revokeSession(sessionKey)`** — the `sessionKey` argument is **required**. Use `sessionPublicKey` from `useCavos()` to revoke the current session.
 9. **`sendMagicLink`** is fire-and-forget. Auth completes via `onAuthChange` listeners, not via a returned Promise. Don't await auth state in the same call chain.
 10. **`signMessage` returns `string[]`**, not a `{ r, s }` object. The array is `[SESSION_V1_magic, r, s, session_key]` — ready for on-chain `is_valid_signature`.
+12. **`slot` config is optional** — if absent, `executeOnSlot()` throws. Never add `relayerAddress` or `relayerPrivateKey` to `SlotConfig` — they don't exist and the relayer is hardcoded in the SDK.
+13. **Slot session key y-parity**: The SDK normalizes all session keys so y < p/2 (Stark field "positive" root), which is required by Cairo's `check_ecdsa_signature`. This fix is already applied to all three session key generation sites (`initializeSession`, `generateNewSession`, `freshenSession`) in `OAuthWalletManager.ts`. Do not bypass or skip this normalization.
 11. **`pendingDeployTxHash`** in `WalletStatus` is set when a deploy tx was submitted but confirmation timed out. It persists in localStorage across page loads until the tx confirms.
 
 ---
