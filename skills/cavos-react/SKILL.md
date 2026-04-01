@@ -84,7 +84,24 @@ interface CavosConfig {
 ```typescript
 interface SlotConfig {
   rpcUrl: string;    // RPC URL of your Cartridge Katana Slot instance
-  chainId?: string;  // Optional — chain ID (e.g. '0x534e5f4d41494e'). Fetched dynamically if omitted.
+  chainId: string;   // REQUIRED — Exact internal VM chain ID (e.g. '0x57505f4341564f53' for WP_CAVOS)
+}
+```
+
+> [!WARNING]
+> **Internal Chain ID Requirement:** Katana nodes typically return `SN_MAIN` via RPC, but their Cairo VM uses a custom internal chain ID. Because the SDK signs the session registration against this internal ID, `slot.chainId` MUST be manually configured to the internal hex value of the Katana genesis. If omitted or incorrect, Katana will reject the outside execution with **"Invalid session key signature"**.
+
+To find an unknown internal chain ID, deploy this minimal contract to Katana and call `get_chain_id` using `starkli`:
+```cairo
+#[starknet::interface]
+pub trait ICheckChainId<TContractState> { fn get_chain_id(self: @TContractState) -> felt252; }
+#[starknet::contract]
+pub mod CheckChainId {
+    use starknet::info::get_tx_info;
+    #[storage] struct Storage {}
+    #[abi(embed_v0)] impl Impl of super::ICheckChainId<ContractState> {
+        fn get_chain_id(self: @ContractState) -> felt252 { get_tx_info().unbox().chain_id }
+    }
 }
 ```
 
@@ -280,7 +297,7 @@ executeOnSlot(calls)
     paymasterApiKey: 'key',
     slot: {
       rpcUrl: 'https://api.cartridge.gg/x/your-project/katana',
-      // chainId: '0x...',   // Optional — skip to auto-detect
+      chainId: '0x57505f4341564f53', // 'WP_CAVOS' in hex
     },
     session: {
       defaultPolicy: {
@@ -537,7 +554,7 @@ const token = exportSession();
 | First Slot tx is slow | Deploys account + registers session on Slot (one-time) | Expected — subsequent calls are instant |
 | "Invalid session key signature" on Slot | Old SDK with broken y-parity fix | Update `@cavos/react` to latest; SDK now normalizes session key y-coordinate |
 | Slot tx rejected — "not in policy" | Game contract not in `allowedContracts` | Add Slot contract address to `session.defaultPolicy.allowedContracts` |
-| Wrong chain ID on Slot | Custom Katana with non-standard chain ID | Pass `chainId` explicitly in `slot` config to skip auto-detection |
+| Wrong chain ID on Slot or "Invalid session key signature" | Custom Katana uses internal chain ID different from RPC | Read the internal Katana chain ID via `get_tx_info().chain_id` and pass it explicitly in `slot.chainId` config |
 
 ---
 
