@@ -84,7 +84,9 @@ interface CavosConfig {
 ```typescript
 interface SlotConfig {
   rpcUrl: string;    // RPC URL of your Cartridge Katana Slot instance
-  chainId: string;   // REQUIRED — Exact internal VM chain ID (e.g. '0x57505f4341564f53' for WP_CAVOS)
+  chainId?: string;  // OPTIONAL — Exact internal VM chain ID (defaults to network)
+  relayerAddress?: string;    // OPTIONAL — Funded account to pay for Slot deployment
+  relayerPrivateKey?: string; // OPTIONAL — Private key for the relayer
 }
 ```
 
@@ -106,7 +108,7 @@ pub mod CheckChainId {
 ```
 
 > [!IMPORTANT]
-> **No relayer configuration is needed.** The SDK uses a built-in Cavos relayer internally for the first JWT session registration on Slot. This is not overridable by developers. If `slot` is absent from the config, nothing Slot-related happens and `executeOnSlot()` will throw.
+> **Address Parity:** On modern Cavos Slots, the `CavosAccount` class and `JWKSRegistry` are deployed at the exact same addresses as production (Sepolia/Mainnet). The SDK now automatically uses these parity addresses. You no longer need to provide `classHash` or `jwksRegistryAddress` in the `SlotConfig`.
 
 ### `SessionConfig`
 
@@ -298,6 +300,8 @@ executeOnSlot(calls)
     slot: {
       rpcUrl: 'https://api.cartridge.gg/x/your-project/katana',
       chainId: '0x57505f4341564f53', // 'WP_CAVOS' in hex
+      relayerAddress: '0x...',       // Optional: custom relayer
+      relayerPrivateKey: '0x...',
     },
     session: {
       defaultPolicy: {
@@ -319,8 +323,8 @@ const txHash = await executeOnSlot({
 });
 ```
 
-> [!CAUTION]
-> **Never configure the relayer yourself** — the SDK hardcodes the Cavos relayer for Slot. There is no `relayerAddress` or `relayerPrivateKey` in `SlotConfig`. Adding them would be a breaking API error.
+> [!TIP]
+> **Relayer Setup:** While the SDK has default relayers, it is recommended to provide a `relayerAddress` and `relayerPrivateKey` for your specific Slot to ensure the account deployment (which is free on Slot anyway) always has a funded "payer" available.
 
 ### 5.4 Account Deployment
 
