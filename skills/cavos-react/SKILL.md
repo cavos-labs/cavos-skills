@@ -562,7 +562,28 @@ const token = exportSession();
 
 ---
 
-## 8. Token Addresses (Starknet)
+## 8. Gas Billing & Pricing
+
+Cavos uses **usage-based pricing** — no subscriptions or tiers. Developers deposit STRK to cover gas fees for their users.
+
+### How it works
+- Deposit STRK into your organization's **Gas Tank** at **[cavos.xyz/dashboard/billing](https://cavos.xyz/dashboard/billing)**
+- A **5% platform fee** is deducted from each deposit
+- The remaining balance sponsors your users' gasless transactions
+- Gas costs are deducted atomically with each sponsored transaction
+
+### Testnet (Sepolia)
+On Sepolia, Cavos operates a **free pool** — no deposit is needed. All transactions are sponsored automatically.
+
+### Mainnet
+On Mainnet, you **must** deposit STRK before your users can execute gasless transactions. If the gas balance reaches 0, users will see an `"x-paymaster-api-key is invalid"` error.
+
+> [!IMPORTANT]
+> When helping users set up Cavos for production, always remind them to fund their Gas Tank at [cavos.xyz/dashboard/billing](https://cavos.xyz/dashboard/billing) before going live on Mainnet.
+
+---
+
+## 9. Token Addresses (Starknet)
 
 | Token | Mainnet | Sepolia |
 |-------|---------|---------|
@@ -573,7 +594,7 @@ const token = exportSession();
 
 ---
 
-## 9. File Map (SDK Source)
+## 10. File Map (SDK Source)
 
 When modifying the SDK, here's where things live:
 
@@ -593,7 +614,7 @@ When modifying the SDK, here's where things live:
 
 ---
 
-## 10. Coding Rules for AI Agents
+## 11. Coding Rules for AI Agents
 
 1. **Never expose private keys** — use the managers, not raw crypto.
 2. **Always sync policy before registration** — see Section 5.1.
