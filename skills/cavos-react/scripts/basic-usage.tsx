@@ -40,6 +40,8 @@ function WalletDashboard() {
         address,
         user,
         login,
+        sendOtp,
+        verifyOtp,
         logout,
         execute,
         isLoading,
@@ -53,6 +55,8 @@ function WalletDashboard() {
             <div>
                 <button onClick={() => login('google')}>Login with Google</button>
                 <button onClick={() => login('apple')}>Login with Apple</button>
+                <button onClick={() => sendOtp('user@example.com')}>Send Email OTP</button>
+                <button onClick={() => verifyOtp('user@example.com', '123456')}>Verify Email OTP</button>
             </div>
         );
     }

@@ -12,7 +12,7 @@ description: "Complete knowledge base for the Cavos React SDK — Starknet accou
 
 ## 1. What is Cavos?
 
-Cavos is a **non-custodial account abstraction SDK** for Starknet. It lets users create smart wallets using their existing OAuth identity (Google, Apple, or passwordless Magic Link) — no seed phrases, no browser extensions.
+Cavos is a **non-custodial account abstraction SDK** for Starknet. It lets users create smart wallets using their existing OAuth identity (Google, Apple, passwordless Magic Link, or Email OTP) — no seed phrases, no browser extensions.
 
 ### Key Principles
 - **Non-custodial**: The user's wallet is derived deterministically from their OAuth `sub` claim + a per-app salt. No one holds the keys.
@@ -159,6 +159,10 @@ const {
   // --- Auth ---
   login,                    // (provider: 'google'|'apple') => Promise<void>
   sendMagicLink,            // (email: string) => Promise<void>  — passwordless; auth completes in background
+  sendOtp,                  // (email: string) => Promise<void>  — send six-digit email OTP
+  verifyOtp,                // (email: string, code: string) => Promise<void> — complete OTP login
+  requestOTP,               // alias for sendOtp(email)
+  loginOTP,                 // alias for verifyOtp(email, code)
   logout,                   // () => Promise<void>
 
   // --- Transactions ---
@@ -206,6 +210,7 @@ const {
 | `'google'` | `login('google')` | Opens new tab → Google OAuth. Address derived from Google `sub`. |
 | `'apple'` | `login('apple')` | Opens new tab → Apple OAuth. Address derived from Apple `sub`. |
 | Magic Link | `sendMagicLink(email)` | Passwordless. Email sent immediately; auth completes in background when user clicks link. |
+| Email OTP | `sendOtp(email)` then `verifyOtp(email, code)` | Passwordless. Sends a six-digit code and completes auth after verification. Raw SDK aliases: `requestOTP(email)`, `loginOTP(email, code)`. |
 
 ### 4.3 WalletStatus
 
@@ -371,7 +376,16 @@ Two levels of revocation:
 
 To react to magic link completion in UI, subscribe via `cavos.onAuthChange(cb)` or simply observe `isAuthenticated` changing.
 
-### 5.9 Auth Modal (`CavosAuthModal`)
+### 5.9 Email OTP Authentication
+
+Email OTP is a two-step passwordless flow:
+1. `sendOtp(email)` / `requestOTP(email)` initializes the pre-auth session and sends a six-digit code
+2. `verifyOtp(email, code)` / `loginOTP(email, code)` verifies the code and processes the returned Cavos Firebase JWT
+3. The SDK initializes transaction managers, records the wallet, and starts account deployment/session registration automatically
+
+Use this for custom UI when the app wants users to type a code instead of clicking a magic link.
+
+### 5.10 Auth Modal (`CavosAuthModal`)
 
 The SDK ships a fully managed auth modal. The recommended pattern is to pass `modal` to `CavosProvider` and call `openModal()`:
 
@@ -383,6 +397,7 @@ The SDK ships a fully managed auth modal. The recommended pattern is to pass `mo
     appName: 'My App',
     theme: 'dark',
     providers: ['google', 'apple', 'email'],  // default: all three
+    emailMode: 'otp',                         // default: 'magic-link'
     primaryColor: '#6366f1',
     onSuccess: (address) => console.log('Wallet ready:', address),
   }}
@@ -401,6 +416,7 @@ const { openModal } = useCavos();
 |------|------|---------|-------------|
 | `appName` | `string` | — | Shown in header: *"Sign in to {appName}"*. Omit for *"Log in or sign up"*. |
 | `providers` | `('google'\|'apple'\|'email')[]` | all three | Which auth methods to show. |
+| `emailMode` | `'magic-link'\|'otp'` | `'magic-link'` | Controls whether the email provider sends a magic link or OTP code. |
 | `primaryColor` | `string` | `'#0A0908'` | Magic link submit button color. |
 | `theme` | `'light'\|'dark'` | `'light'` | Color scheme. |
 | `onSuccess` | `(address: string) => void` | — | Fires ~1.6s after `walletStatus.isReady`. |
@@ -412,6 +428,7 @@ const { openModal } = useCavos();
 | `select` | Default — provider selection |
 | `magic-link` | User typed an email and pressed Submit |
 | `verify` | Magic link sent — waiting for click |
+| `otp-code` | OTP sent — waiting for six-digit code |
 | `deploying` | User authenticated — wallet deploying |
 
 **`deploying` screen cannot be dismissed** — clicking outside or the close button has no effect. This prevents navigating away before the wallet is ready.
@@ -625,7 +642,8 @@ When modifying the SDK, here's where things live:
 7. **Wallet names** are currently stored in `localStorage` (`cavos_seen_wallets_${appId}_${sub}`) — not persistent across devices.
 8. **`revokeSession(sessionKey)`** — the `sessionKey` argument is **required**. Use `sessionPublicKey` from `useCavos()` to revoke the current session.
 9. **`sendMagicLink`** is fire-and-forget. Auth completes via `onAuthChange` listeners, not via a returned Promise. Don't await auth state in the same call chain.
-10. **`signMessage` returns `string[]`**, not a `{ r, s }` object. The array is `[SESSION_V1_magic, r, s, session_key]` — ready for on-chain `is_valid_signature`.
+10. **Email OTP is two-step**. Use `sendOtp`/`verifyOtp` from React hooks or `requestOTP`/`loginOTP` on the raw `CavosSDK`.
+11. **`signMessage` returns `string[]`**, not a `{ r, s }` object. The array is `[SESSION_V1_magic, r, s, session_key]` — ready for on-chain `is_valid_signature`.
 12. **`slot` config is optional** — if absent, `executeOnSlot()` throws. Never add `relayerAddress` or `relayerPrivateKey` to `SlotConfig` — they don't exist and the relayer is hardcoded in the SDK.
 13. **Slot session key y-parity**: The SDK normalizes all session keys so y < p/2 (Stark field "positive" root), which is required by Cairo's `check_ecdsa_signature`. This fix is already applied to all three session key generation sites (`initializeSession`, `generateNewSession`, `freshenSession`) in `OAuthWalletManager.ts`. Do not bypass or skip this normalization.
 11. **`pendingDeployTxHash`** in `WalletStatus` is set when a deploy tx was submitted but confirmation timed out. It persists in localStorage across page loads until the tx confirms.
