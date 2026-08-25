@@ -1,3 +1,5 @@
+> **Deprecated:** The `@cavos/react` session-keys material below is for the old custodial SDK. Do not use it. Use [`@cavos/kit`](https://www.npmjs.com/package/@cavos/kit) instead. Docs: https://docs.cavos.xyz
+
 # Cavos Skills
 
 AI-optimized knowledge for building on the [Cavos](https://cavos.xyz) ecosystem. Install these skills to give your AI coding assistant expert-level understanding of the Cavos SDKs.
